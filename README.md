@@ -14,6 +14,14 @@ Buka halaman gamenya:
 Papan bisa langsung dimainkan: klik bidak, lalu klik kotak tujuan. Aturan catur standar
 (legal move, skak, skakmat, remis). Promosi pion otomatis jadi Menteri (Queen).
 
+## Mode Lawan Engine (persiapan bounty)
+
+Selain manusia vs manusia, halaman ini punya mode **Lawan Engine**: kamu main
+langsung melawan engine catur cst.ai — port JavaScript dari entry bounty
+tiny-chess-01 round 3 (30.000 node/langkah, skor resmi 1.364, masuk final).
+Pilih "kamu Putih" atau "kamu Hitam" di atas papan; engine menampilkan node,
+eval, dan depth tiap langkahnya. File engine: [`engine.js`](engine.js).
+
 ## Cara main jarak jauh
 
 Halaman ini tidak menyimpan langkah di server — papan ada di browser masing-masing.

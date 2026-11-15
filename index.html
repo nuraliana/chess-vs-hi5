@@ -14,6 +14,10 @@
   .players span { background: #262421; border: 1px solid #3a372f; border-radius: 999px; padding: 6px 14px; font-size: 15px; }
   .players .w { border-color: #f0d9b5; }
   .players .b { border-color: #888; }
+  .mode-row { width: 100%; display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+  .mode-btn.active { background: #e8b93e; color: #111; border-color: #e8b93e; font-weight: 700; }
+  #engineInfo { background: #262421; border: 1px solid #3a372f; border-radius: 8px; padding: 10px 14px; font-size: 14px; color: #b8b3a8; margin-top: 10px; display: none; }
+  #engineInfo b { color: #e8e6e1; }
   main { display: flex; gap: 20px; justify-content: center; align-items: flex-start; flex-wrap: wrap; padding: 12px; }
   #board { display: grid; grid-template-columns: repeat(8, 1fr); width: min(92vw, 480px); aspect-ratio: 1; border: 4px solid #3a372f; border-radius: 6px; overflow: hidden; user-select: none; }
   .sq { display: flex; align-items: center; justify-content: center; font-size: min(9vw, 44px); line-height: 1; cursor: pointer; position: relative; }
@@ -53,16 +57,22 @@
   <h1>♞ Nur vs hi5 — Match Catur</h1>
   <p>Persahabatan di atas papan 64 kotak.</p>
   <div class="players">
-    <span class="w">♔ Putih: <b>Nur</b> (@nuraliana-ana)</span>
-    <span class="b">♚ Hitam: <b>hi5</b> (hi5.ai)</span>
+    <span class="w" id="pillW">♔ Putih: <b>Nur</b> (@nuraliana-ana)</span>
+    <span class="b" id="pillB">♚ Hitam: <b>hi5</b> (hi5.ai)</span>
   </div>
 </header>
 
 <main>
+  <div class="mode-row" role="group" aria-label="Mode permainan">
+    <button class="mode-btn active" id="modeHuman">👥 Manusia vs Manusia</button>
+    <button class="mode-btn" id="modeEngW">🤖 Lawan Engine — kamu Putih</button>
+    <button class="mode-btn" id="modeEngB">🤖 Lawan Engine — kamu Hitam</button>
+  </div>
   <div id="board" aria-label="Papan catur"></div>
 
   <div class="panel">
     <div id="status">Giliran Putih (Nur) — klik bidak lalu klik kotak tujuan.</div>
+    <div id="engineInfo"></div>
     <div class="btns">
       <button id="btnNew">🔄 Game Baru</button>
       <button id="btnUndo">↩️ Undo</button>
@@ -98,6 +108,7 @@
 
 <script type="module">
 import { Chess } from './chess.js';
+import { bestMove, MATE } from './engine.js';
 
 const PIECES = { p: '♟', n: '♞', b: '♝', r: '♜', q: '♛', k: '♚' };
 const FILES = ['a','b','c','d','e','f','g','h'];
@@ -106,12 +117,73 @@ let game = new Chess();
 let selected = null;      // square, e.g. 'e2'
 let legalTargets = [];    // verbose moves from selected
 let flipped = false;
+let mode = 'human';       // 'human' | 'engine-w' (kamu Putih) | 'engine-b' (kamu Hitam)
+let engineThinking = false;
+let engineTimer = null;
+const ENGINE_NODES = 30000;
 
 const boardEl = document.getElementById('board');
 const statusEl = document.getElementById('status');
 const movesEl = document.getElementById('moves');
 const pgnOutEl = document.getElementById('pgnOut');
 const pgnInEl = document.getElementById('pgnIn');
+const engineInfoEl = document.getElementById('engineInfo');
+const pillW = document.getElementById('pillW');
+const pillB = document.getElementById('pillB');
+
+function engineColor() {
+  return mode === 'engine-w' ? 'b' : mode === 'engine-b' ? 'w' : null;
+}
+function playerName(color) {
+  if (mode === 'human') return color === 'w' ? 'Putih (Nur)' : 'Hitam (hi5)';
+  const ec = engineColor();
+  if (color === ec) return color === 'w' ? 'Putih (Engine cst.ai)' : 'Hitam (Engine cst.ai)';
+  return color === 'w' ? 'Putih (Kamu)' : 'Hitam (Kamu)';
+}
+function updatePills() {
+  if (mode === 'human') {
+    pillW.innerHTML = '♔ Putih: <b>Nur</b> (@nuraliana-ana)';
+    pillB.innerHTML = '♚ Hitam: <b>hi5</b> (hi5.ai)';
+  } else if (mode === 'engine-w') {
+    pillW.innerHTML = '♔ Putih: <b>Kamu</b>';
+    pillB.innerHTML = '♚ Hitam: <b>Engine cst.ai</b> (Elo 1.364)';
+  } else {
+    pillW.innerHTML = '♔ Putih: <b>Engine cst.ai</b> (Elo 1.364)';
+    pillB.innerHTML = '♚ Hitam: <b>Kamu</b>';
+  }
+}
+// Eval untuk tampilan: dari sudut pandang Putih; skor mate jadi "skakmat dalam N".
+function fmtEval(score, engineIsWhite) {
+  if (Math.abs(score) > MATE - 200) {
+    const n = Math.ceil((MATE - Math.abs(score)) / 2);
+    return score > 0 ? 'skakmat dalam ' + n + ' langkah' : 'terancam skakmat dalam ' + n + ' langkah';
+  }
+  const w = engineIsWhite ? score : -score;
+  return (w >= 0 ? '+' : '') + (w / 100).toFixed(2);
+}
+function maybeEngineMove() {
+  const ec = engineColor();
+  if (!ec || game.turn() !== ec) return;
+  if (game.in_checkmate() || game.in_stalemate() || game.in_draw()) return;
+  engineThinking = true;
+  updateStatus();
+  clearTimeout(engineTimer);
+  engineTimer = setTimeout(() => {
+    const t0 = performance.now();
+    const r = bestMove(game.fen(), ENGINE_NODES, game.history({ verbose: true }));
+    const secs = ((performance.now() - t0) / 1000).toFixed(2);
+    engineThinking = false;
+    if (r) {
+      game.move({ from: r.from, to: r.to, promotion: r.promotion || 'q' });
+      engineInfoEl.style.display = 'block';
+      engineInfoEl.innerHTML = '<b>Engine cst.ai</b> (round 3, Elo resmi 1.364) · node budget ' +
+        ENGINE_NODES.toLocaleString('en-US') + '<br>Langkah terakhir: <b>' + r.from + r.to + (r.promotion || '') +
+        '</b> · eval ' + fmtEval(r.score, ec === 'w') + ' · ' + r.nodes.toLocaleString('en-US') +
+        ' node · depth ' + r.depth + ' · ' + secs + ' dtk';
+    }
+    render();
+  }, 300);
+}
 
 function squareAt(row, col) {
   const r = flipped ? 7 - row : row;
@@ -180,6 +252,9 @@ function findKing(color) {
 }
 
 function onSquare(sq) {
+  if (engineThinking) return;
+  const ec = engineColor();
+  if (ec && game.turn() === ec) return;
   if (game.in_checkmate() || game.in_stalemate() || game.in_draw()) return;
   const piece = game.get(sq);
   if (selected) {
@@ -188,6 +263,7 @@ function onSquare(sq) {
       game.move({ from: selected, to: sq, promotion: 'q' });
       selected = null; legalTargets = [];
       render();
+      maybeEngineMove();
       return;
     }
   }
@@ -203,13 +279,15 @@ function onSquare(sq) {
 function updateStatus() {
   let t;
   if (game.in_checkmate()) {
-    t = '🏆 Skakmat! ' + (game.turn() === 'w' ? 'Hitam (hi5)' : 'Putih (Nur)') + ' menang.';
+    t = '🏆 Skakmat! ' + playerName(game.turn() === 'w' ? 'b' : 'w') + ' menang.';
   } else if (game.in_stalemate()) {
     t = '🤝 Remis — stalemate.';
   } else if (game.in_draw()) {
     t = '🤝 Remis.';
+  } else if (engineThinking) {
+    t = '🤖 Engine mikir...';
   } else {
-    t = 'Giliran ' + (game.turn() === 'w' ? 'Putih (Nur)' : 'Hitam (hi5)') +
+    t = 'Giliran ' + playerName(game.turn()) +
         (game.in_check() ? ' — SKAK!' : '');
   }
   statusEl.textContent = t;
@@ -229,11 +307,36 @@ function updateMoves() {
   movesEl.scrollTop = movesEl.scrollHeight;
 }
 
+function setMode(m) {
+  mode = m;
+  document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(m === 'human' ? 'modeHuman' : m === 'engine-w' ? 'modeEngW' : 'modeEngB').classList.add('active');
+  if (m === 'human') engineInfoEl.style.display = 'none';
+  updatePills();
+  // Ganti mode tidak mereset papan; engine jalan bila kini gilirannya.
+  clearTimeout(engineTimer);
+  engineThinking = false;
+  render();
+  maybeEngineMove();
+}
+document.getElementById('modeHuman').addEventListener('click', () => setMode('human'));
+document.getElementById('modeEngW').addEventListener('click', () => setMode('engine-w'));
+document.getElementById('modeEngB').addEventListener('click', () => setMode('engine-b'));
+
 document.getElementById('btnNew').addEventListener('click', () => {
+  clearTimeout(engineTimer);
+  engineThinking = false;
   game = new Chess(); selected = null; legalTargets = []; render();
+  maybeEngineMove();
 });
 document.getElementById('btnUndo').addEventListener('click', () => {
-  game.undo(); selected = null; legalTargets = []; render();
+  clearTimeout(engineTimer);
+  engineThinking = false;
+  // Mode engine: batalkan langkah engine + balasan manusia (2 ply) supaya
+  // giliran kembali ke manusia; mode manusia: 1 ply seperti biasa.
+  game.undo();
+  if (engineColor()) game.undo();
+  selected = null; legalTargets = []; render();
 });
 document.getElementById('btnFlip').addEventListener('click', () => {
   flipped = !flipped; render();
@@ -252,8 +355,10 @@ document.getElementById('btnLoad').addEventListener('click', () => {
   if (!ok) { alert('PGN tidak bisa dimuat — periksa lagi teksnya.'); return; }
   selected = null; legalTargets = []; render();
   pgnInEl.value = '';
+  maybeEngineMove();
 });
 
+updatePills();
 render();
 </script>
 </body>

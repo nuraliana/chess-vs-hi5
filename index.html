@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nur vs hi5 — Match Catur</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: #161512; color: #e8e6e1; }
+  header { text-align: center; padding: 18px 12px 6px; }
+  header h1 { margin: 0; font-size: 26px; }
+  header p { margin: 6px 0 0; color: #b8b3a8; }
+  .players { display: flex; justify-content: center; gap: 12px; margin: 12px 0 4px; flex-wrap: wrap; }
+  .players span { background: #262421; border: 1px solid #3a372f; border-radius: 999px; padding: 6px 14px; font-size: 15px; }
+  .players .w { border-color: #f0d9b5; }
+  .players .b { border-color: #888; }
+  main { display: flex; gap: 20px; justify-content: center; align-items: flex-start; flex-wrap: wrap; padding: 12px; }
+  #board { display: grid; grid-template-columns: repeat(8, 1fr); width: min(92vw, 480px); aspect-ratio: 1; border: 4px solid #3a372f; border-radius: 6px; overflow: hidden; user-select: none; }
+  .sq { display: flex; align-items: center; justify-content: center; font-size: min(9vw, 44px); line-height: 1; cursor: pointer; position: relative; }
+  .sq.light { background: #f0d9b5; }
+  .sq.dark { background: #b58863; }
+  .sq .pc-w { color: #fff; text-shadow: 0 0 3px #000, 0 2px 3px rgba(0,0,0,.7); }
+  .sq .pc-b { color: #111; text-shadow: 0 0 3px #fff, 0 2px 3px rgba(255,255,255,.4); }
+  .sq.sel { outline: 3px solid #e8b93e; outline-offset: -3px; }
+  .sq.last { background: #cdd26a; }
+  .sq.light.last { background: #d6da73; }
+  .sq.dark.last { background: #a9a24d; }
+  .sq.check { background: #e05a4e; }
+  .sq .dot { position: absolute; width: 26%; height: 26%; border-radius: 50%; background: rgba(20, 90, 20, .45); pointer-events: none; }
+  .sq .dot-cap { position: absolute; inset: 4%; border: 4px solid rgba(20, 90, 20, .5); border-radius: 50%; pointer-events: none; }
+  .sq .coord { position: absolute; font-size: 10px; font-weight: 700; color: rgba(0,0,0,.55); pointer-events: none; }
+  .sq .coord.file { right: 3px; bottom: 2px; }
+  .sq .coord.rank { left: 3px; top: 2px; }
+  .panel { width: min(92vw, 360px); }
+  #status { background: #262421; border: 1px solid #3a372f; border-radius: 8px; padding: 12px 14px; font-size: 16px; min-height: 48px; }
+  .btns { display: flex; gap: 8px; margin: 10px 0; flex-wrap: wrap; }
+  button { background: #3a372f; color: #e8e6e1; border: 1px solid #55504a; border-radius: 8px; padding: 8px 14px; font-size: 14px; cursor: pointer; }
+  button:hover { background: #4a453d; }
+  #moves { background: #262421; border: 1px solid #3a372f; border-radius: 8px; padding: 10px 12px; min-height: 80px; max-height: 220px; overflow-y: auto; font-size: 15px; line-height: 1.7; }
+  #moves .num { color: #8a857a; margin-right: 4px; }
+  #moves .mv { margin-right: 10px; }
+  #moves .mv.cur { background: #e8b93e; color: #111; border-radius: 4px; padding: 0 4px; }
+  textarea { width: 100%; background: #1e1c19; color: #d8d3c8; border: 1px solid #3a372f; border-radius: 8px; padding: 10px; font-family: ui-monospace, monospace; font-size: 13px; resize: vertical; }
+  .pgn-box { margin-top: 12px; }
+  .pgn-box label { display: block; margin-bottom: 6px; color: #b8b3a8; font-size: 14px; }
+  .howto { max-width: 860px; margin: 8px auto 24px; padding: 0 16px; color: #b8b3a8; font-size: 14px; line-height: 1.6; }
+  .howto h2 { color: #e8e6e1; font-size: 17px; margin-bottom: 4px; }
+  footer { text-align: center; color: #6f6a5f; font-size: 12px; padding-bottom: 20px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>♞ Nur vs hi5 — Match Catur</h1>
+  <p>Persahabatan di atas papan 64 kotak.</p>
+  <div class="players">
+    <span class="w">♔ Putih: <b>Nur</b> (@nuraliana-ana)</span>
+    <span class="b">♚ Hitam: <b>hi5</b> (hi5.ai)</span>
+  </div>
+</header>
+
+<main>
+  <div id="board" aria-label="Papan catur"></div>
+
+  <div class="panel">
+    <div id="status">Giliran Putih (Nur) — klik bidak lalu klik kotak tujuan.</div>
+    <div class="btns">
+      <button id="btnNew">🔄 Game Baru</button>
+      <button id="btnUndo">↩️ Undo</button>
+      <button id="btnFlip">🔃 Putar Papan</button>
+    </div>
+    <div id="moves"></div>
+
+    <div class="pgn-box">
+      <label>PGN game ini (otomatis terisi setiap langkah):</label>
+      <textarea id="pgnOut" rows="4" readonly></textarea>
+      <div class="btns"><button id="btnCopy">📋 Salin PGN</button></div>
+    </div>
+
+    <div class="pgn-box">
+      <label>Lanjutkan game dari PGN (tempel PGN kiriman lawan):</label>
+      <textarea id="pgnIn" rows="3" placeholder="1. e4 e5 2. Nf3 ..."></textarea>
+      <div class="btns"><button id="btnLoad">▶️ Muat PGN</button></div>
+    </div>
+  </div>
+</main>
+
+<section class="howto">
+  <h2>Cara main jarak jauh</h2>
+  <p>Halaman ini tidak menyimpan langkah di server — papan ada di browser masing-masing.
+  Caranya: mainkan langkahmu di sini, lalu tekan <b>Salin PGN</b> dan kirim PGN-nya ke lawan lewat chat.
+  Lawan menempel PGN itu di kotak "Lanjutkan game dari PGN", tekan <b>Muat PGN</b>, lalu memainkan balasannya —
+  dan mengirim PGN terbaru kembali. Begitu terus sampai ada yang menang.
+  Promosi pion otomatis jadi Menteri (Queen). Hasil game yang selesai bisa disimpan sebagai file PGN di folder
+  <code>matches/</code> repo ini.</p>
+</section>
+
+<footer>chess.js 0.13.4 (BSD) — aturan catur standar. Repo: github.com/nuraliana/chess-vs-hi5</footer>
+
+<script type="module">
+import { Chess } from './chess.js';
+
+const PIECES = { p: '♟', n: '♞', b: '♝', r: '♜', q: '♛', k: '♚' };
+const FILES = ['a','b','c','d','e','f','g','h'];
+
+let game = new Chess();
+let selected = null;      // square, e.g. 'e2'
+let legalTargets = [];    // verbose moves from selected
+let flipped = false;
+
+const boardEl = document.getElementById('board');
+const statusEl = document.getElementById('status');
+const movesEl = document.getElementById('moves');
+const pgnOutEl = document.getElementById('pgnOut');
+const pgnInEl = document.getElementById('pgnIn');
+
+function squareAt(row, col) {
+  const r = flipped ? 7 - row : row;
+  const c = flipped ? 7 - col : col;
+  return FILES[c] + (8 - r);
+}
+
+function render() {
+  const b = game.board();
+  const hist = game.history({ verbose: true });
+  const last = hist.length ? hist[hist.length - 1] : null;
+  const kingInCheck = game.in_check() ? findKing(game.turn()) : null;
+  boardEl.innerHTML = '';
+  for (let row = 0; row < 8; row++) {
+    for (let col = 0; col < 8; col++) {
+      const r = flipped ? 7 - row : row;
+      const c = flipped ? 7 - col : col;
+      const sq = FILES[c] + (8 - r);
+      const piece = b[r][c];
+      const div = document.createElement('div');
+      div.className = 'sq ' + ((r + c) % 2 === 0 ? 'light' : 'dark');
+      div.dataset.square = sq;
+      if (last && (sq === last.from || sq === last.to)) div.classList.add('last');
+      if (kingInCheck === sq) div.classList.add('check');
+      if (selected === sq) div.classList.add('sel');
+      if (piece) {
+        const s = document.createElement('span');
+        s.className = piece.color === 'w' ? 'pc-w' : 'pc-b';
+        s.textContent = PIECES[piece.type];
+        div.appendChild(s);
+      }
+      const tgt = legalTargets.find(m => m.to === sq);
+      if (tgt) {
+        const dot = document.createElement('span');
+        dot.className = piece ? 'dot-cap' : 'dot';
+        div.appendChild(dot);
+      }
+      if (c === 0) {
+        const rc = document.createElement('span');
+        rc.className = 'coord rank';
+        rc.textContent = 8 - r;
+        div.appendChild(rc);
+      }
+      if (r === 7) {
+        const fc = document.createElement('span');
+        fc.className = 'coord file';
+        fc.textContent = FILES[c];
+        div.appendChild(fc);
+      }
+      div.addEventListener('click', () => onSquare(sq));
+      boardEl.appendChild(div);
+    }
+  }
+  updateStatus();
+  updateMoves();
+  pgnOutEl.value = game.pgn();
+}
+
+function findKing(color) {
+  const b = game.board();
+  for (let r = 0; r < 8; r++)
+    for (let c = 0; c < 8; c++)
+      if (b[r][c] && b[r][c].type === 'k' && b[r][c].color === color)
+        return FILES[c] + (8 - r);
+  return null;
+}
+
+function onSquare(sq) {
+  if (game.in_checkmate() || game.in_stalemate() || game.in_draw()) return;
+  const piece = game.get(sq);
+  if (selected) {
+    const mv = legalTargets.find(m => m.to === sq);
+    if (mv) {
+      game.move({ from: selected, to: sq, promotion: 'q' });
+      selected = null; legalTargets = [];
+      render();
+      return;
+    }
+  }
+  if (piece && piece.color === game.turn()) {
+    selected = sq;
+    legalTargets = game.moves({ square: sq, verbose: true });
+  } else {
+    selected = null; legalTargets = [];
+  }
+  render();
+}
+
+function updateStatus() {
+  let t;
+  if (game.in_checkmate()) {
+    t = '🏆 Skakmat! ' + (game.turn() === 'w' ? 'Hitam (hi5)' : 'Putih (Nur)') + ' menang.';
+  } else if (game.in_stalemate()) {
+    t = '🤝 Remis — stalemate.';
+  } else if (game.in_draw()) {
+    t = '🤝 Remis.';
+  } else {
+    t = 'Giliran ' + (game.turn() === 'w' ? 'Putih (Nur)' : 'Hitam (hi5)') +
+        (game.in_check() ? ' — SKAK!' : '');
+  }
+  statusEl.textContent = t;
+}
+
+function updateMoves() {
+  const hist = game.history();
+  if (!hist.length) { movesEl.innerHTML = '<span style="color:#8a857a">Belum ada langkah.</span>'; return; }
+  let html = '';
+  for (let i = 0; i < hist.length; i += 2) {
+    const n = i / 2 + 1;
+    html += '<span class="num">' + n + '.</span>';
+    html += '<span class="mv">' + hist[i] + '</span>';
+    if (hist[i + 1]) html += '<span class="mv">' + hist[i + 1] + '</span>';
+  }
+  movesEl.innerHTML = html;
+  movesEl.scrollTop = movesEl.scrollHeight;
+}
+
+document.getElementById('btnNew').addEventListener('click', () => {
+  game = new Chess(); selected = null; legalTargets = []; render();
+});
+document.getElementById('btnUndo').addEventListener('click', () => {
+  game.undo(); selected = null; legalTargets = []; render();
+});
+document.getElementById('btnFlip').addEventListener('click', () => {
+  flipped = !flipped; render();
+});
+document.getElementById('btnCopy').addEventListener('click', async () => {
+  pgnOutEl.select();
+  try { await navigator.clipboard.writeText(pgnOutEl.value); } catch (e) { document.execCommand('copy'); }
+  const btn = document.getElementById('btnCopy');
+  btn.textContent = '✅ Tersalin!';
+  setTimeout(() => { btn.textContent = '📋 Salin PGN'; }, 1500);
+});
+document.getElementById('btnLoad').addEventListener('click', () => {
+  const pgn = pgnInEl.value.trim();
+  if (!pgn) return;
+  const ok = game.load_pgn(pgn);
+  if (!ok) { alert('PGN tidak bisa dimuat — periksa lagi teksnya.'); return; }
+  selected = null; legalTargets = []; render();
+  pgnInEl.value = '';
+});
+
+render();
+</script>
+</body>
+</html>
